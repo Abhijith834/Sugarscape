@@ -1,158 +1,149 @@
 import random
 import csv
-import matplotlib.pyplot as plt
 
-# ------------------------
-# TASK 1: Simulation Setup
-# ------------------------
-
+# Parameters
 GRID_SIZE = 20
 NUM_AGENTS = 20
 INITIAL_ENERGY = 10
-SIGHT_RANGE = 3
+SIGHT = 3
 TURNS = 500
 
-# Initialize capacity and sugar arrays
-capacity = [[x + y for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
-sugar = [[capacity[x][y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
+class Agent:
+    def __init__(self, x, y, energy=INITIAL_ENERGY, sight=SIGHT):
+        self.x = x
+        self.y = y
+        self.energy = energy
+        self.sight = sight
+        self.alive = True
 
-# Set up agents as dictionaries
-agents = []
+class Sugarscape:
+    def __init__(self, grid_size=GRID_SIZE):
+        self.grid_size = grid_size
+        # capacity and sugar arrays
+        self.capacity = [[x+y for y in range(grid_size)] for x in range(grid_size)]
+        self.sugar = [[self.capacity[x][y] for y in range(grid_size)] for x in range(grid_size)]
+        # Place agents randomly
+        self.agents = []
+        self.place_agents()
 
-# Wrap-around function
-def wrap(n):
-    return n % GRID_SIZE
+    def place_agents(self):
+        positions = set()
+        while len(positions) < NUM_AGENTS:
+            x = random.randint(0, self.grid_size-1)
+            y = random.randint(0, self.grid_size-1)
+            if (x,y) not in positions:
+                positions.add((x,y))
+                self.agents.append(Agent(x, y))
 
-# Place agents at random distinct locations
-all_positions = [(x, y) for x in range(GRID_SIZE) for y in range(GRID_SIZE)]
-random.shuffle(all_positions)
-for _ in range(NUM_AGENTS):
-    x, y = all_positions.pop()
-    agents.append({"x": x, "y": y, "energy": INITIAL_ENERGY, "sight": SIGHT_RANGE})
+    def wrap(self, coord):
+        return coord % self.grid_size
 
-def sugar_growth_phase():
-    for x in range(GRID_SIZE):
-        for y in range(GRID_SIZE):
-            if sugar[x][y] < capacity[x][y]:
-                sugar[x][y] += 1
+    def sugar_growth_phase(self):
+        for x in range(self.grid_size):
+            for y in range(self.grid_size):
+                if self.sugar[x][y] < self.capacity[x][y]:
+                    self.sugar[x][y] += 1
 
-def visible_cells(agent):
-    # Cells visible to the agent: itself and up to 'sight' steps in the four directions
-    x, y = agent["x"], agent["y"]
-    cells = [(x, y)]
-    # Up
-    for i in range(1, agent["sight"] + 1):
-        cells.append((x, wrap(y - i)))
-    # Down
-    for i in range(1, agent["sight"] + 1):
-        cells.append((x, wrap(y + i)))
-    # Left
-    for i in range(1, agent["sight"] + 1):
-        cells.append((wrap(x - i), y))
-    # Right
-    for i in range(1, agent["sight"] + 1):
-        cells.append((wrap(x + i), y))
-    return cells
+    def visible_locations(self, agent):
+        # Agent can see up to SIGHT steps N, S, E, W, plus current
+        visible = []
+        # include current location
+        visible.append((agent.x, agent.y))
+        for i in range(1, agent.sight+1):
+            visible.append((self.wrap(agent.x+i), agent.y)) # East
+            visible.append((self.wrap(agent.x-i), agent.y)) # West
+            visible.append((agent.x, self.wrap(agent.y+i))) # South
+            visible.append((agent.x, self.wrap(agent.y-i))) # North
+        # Remove duplicates if any
+        visible = list(set(visible))
+        return visible
 
-def agent_movement_phase():
-    random.shuffle(agents)
-    occupied = {(a["x"], a["y"]) for a in agents}
+    def agent_movement_phase(self):
+        # Move agents in random order
+        random.shuffle(self.agents)
+        occupied = {(ag.x, ag.y) for ag in self.agents if ag.alive}
 
-    for agent in agents:
-        vis_cells = visible_cells(agent)
+        for agent in self.agents:
+            if not agent.alive:
+                continue
+            vis_locs = self.visible_locations(agent)
+            # choose location with highest sugar, ties random
+            # cannot choose location with another agent
+            candidates = [(lx,ly) for (lx,ly) in vis_locs if (lx,ly) not in occupied or (lx,ly) == (agent.x, agent.y)]
+            if not candidates:
+                # If no candidates, stay put
+                continue
+            best_sugar = max(self.sugar[lx][ly] for (lx,ly) in candidates)
+            best_candidates = [(lx,ly) for (lx,ly) in candidates if self.sugar[lx][ly] == best_sugar]
+            new_x, new_y = random.choice(best_candidates)
+            # Update occupied set
+            occupied.remove((agent.x, agent.y))
+            agent.x, agent.y = new_x, new_y
+            occupied.add((agent.x, agent.y))
+            # Consume sugar
+            agent.energy += self.sugar[new_x][new_y]
+            self.sugar[new_x][new_y] = 0
 
-        # Agent can’t move into a cell with another agent, except its own cell
-        free_cells = []
-        for (cx, cy) in vis_cells:
-            if (cx, cy) == (agent["x"], agent["y"]) or (cx, cy) not in occupied:
-                free_cells.append((cx, cy))
+    def consumption_phase(self):
+        # Each agent loses 1 energy, if <=0 dies
+        for agent in self.agents:
+            if agent.alive:
+                agent.energy -= 1
+                if agent.energy <= 0:
+                    agent.alive = False
 
-        # Choose the cell with the max sugar
-        max_sug = max(sugar[cx][cy] for cx, cy in free_cells)
-        candidates = [(cx, cy) for (cx, cy) in free_cells if sugar[cx][cy] == max_sug]
-        chosen = random.choice(candidates)
+    def run_simulation(self, turns=TURNS):
+        # For Task 2 data: 
+        # 1) sum of energy each turn
+        # 2) positions of agents at turn 1,50,500
+        # 3) sugar at each location at turn 1,50,500
+        energy_data = []
+        pos_data = {}
+        sugar_data = {}
 
-        # Move agent
-        old_pos = (agent["x"], agent["y"])
-        occupied.remove(old_pos)
-        occupied.add(chosen)
-        agent["x"], agent["y"] = chosen[0], chosen[1]
+        for t in range(1, turns+1):
+            # phases
+            self.sugar_growth_phase()
+            self.agent_movement_phase()
+            self.consumption_phase()
 
-        # Consume sugar
-        agent["energy"] += sugar[chosen[0]][chosen[1]]
-        sugar[chosen[0]][chosen[1]] = 0
+            # Collect data
+            living_agents = [a for a in self.agents if a.alive]
+            total_energy = sum(a.energy for a in living_agents)
+            energy_data.append((t,total_energy))
 
-def consumption_phase():
-    survivors = []
-    for agent in agents:
-        agent["energy"] -= 1
-        if agent["energy"] > 0:
-            survivors.append(agent)
-    return survivors
+            if t in [1,50,500]:
+                pos_data[t] = [(a.x,a.y) for a in living_agents]
+                sugar_snapshot = [[self.sugar[x][y] for y in range(self.grid_size)] for x in range(self.grid_size)]
+                sugar_data[t] = sugar_snapshot
 
-# ------------------------
-# TASK 2: Data Collection
-# ------------------------
+        # Write to CSV
+        # Energy over turns
+        with open("task1_energy_data.csv","w",newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(["Turn","TotalEnergy"])
+            writer.writerows(energy_data)
 
-# CSV files:
-# 1. total_energy.csv: total energy per turn
-# 2. agent_positions.csv: agent positions at turns 1, 50, 500
-# 3. sugar_levels.csv: sugar values at turns 1, 50, 500
+        # Agent positions
+        with open("task1_agent_positions.csv","w",newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(["Turn","AgentX","AgentY"])
+            for t in pos_data:
+                for (x,y) in pos_data[t]:
+                    writer.writerow([t,x,y])
 
-total_energy_file = open('total_energy.csv', 'w', newline='')
-total_energy_writer = csv.writer(total_energy_file)
-total_energy_writer.writerow(["turn", "total_energy"])
+        # Sugar levels
+        with open("task1_sugar_levels.csv","w",newline='') as f:
+            writer = csv.writer(f)
+            # Format: Turn, X, Y, Sugar
+            writer.writerow(["Turn","X","Y","Sugar"])
+            for t in sugar_data:
+                for x in range(self.grid_size):
+                    for y in range(self.grid_size):
+                        writer.writerow([t,x,y,sugar_data[t][x][y]])
 
-agent_positions_file = open('agent_positions.csv', 'w', newline='')
-agent_positions_writer = csv.writer(agent_positions_file)
-agent_positions_writer.writerow(["turn", "agent_id", "x", "y", "energy"])
 
-sugar_levels_file = open('sugar_levels.csv', 'w', newline='')
-sugar_levels_writer = csv.writer(sugar_levels_file)
-
-def record_agent_positions(turn):
-    for i, a in enumerate(agents):
-        agent_positions_writer.writerow([turn, i, a["x"], a["y"], a["energy"]])
-
-def record_sugar_levels(turn):
-    for y in range(GRID_SIZE):
-        row_data = [turn]
-        for x in range(GRID_SIZE):
-            row_data.append(sugar[x][y])
-        sugar_levels_writer.writerow(row_data)
-
-# Run the simulation
-for turn in range(1, TURNS + 1):
-    sugar_growth_phase()
-    agent_movement_phase()
-    agents = consumption_phase()
-
-    # Record total energy every turn
-    total_energy = sum(a["energy"] for a in agents)
-    total_energy_writer.writerow([turn, total_energy])
-
-    # Record agent positions and sugar levels at specified turns
-    if turn in [1, 50, 500]:
-        record_agent_positions(turn)
-        record_sugar_levels(turn)
-
-total_energy_file.close()
-agent_positions_file.close()
-sugar_levels_file.close()
-
-# Example: Reading back total energy and plotting
-turns = []
-energies = []
-with open('total_energy.csv', 'r') as f:
-    reader = csv.reader(f)
-    next(reader)  # skip header
-    for row in reader:
-        turns.append(int(row[0]))
-        energies.append(int(row[1]))
-
-plt.figure()
-plt.plot(turns, energies, linestyle='-')
-plt.xlabel("Turn")
-plt.ylabel("Total Energy of All Agents")
-plt.title("Total Agent Energy Over Time")
-plt.show()
+if __name__ == "__main__":
+    s = Sugarscape()
+    s.run_simulation()
+    print("Task 1 simulation completed. Data saved to CSV files.")

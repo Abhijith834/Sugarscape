@@ -1,200 +1,146 @@
 import random
 import csv
-import matplotlib.pyplot as plt
-import numpy as np
+import statistics
 
-# ------------------------
-# TASK 3: Evolution in Sugarscape Setup
-# ------------------------
-
+# Parameters
 GRID_SIZE = 20
 NUM_AGENTS = 20
 INITIAL_ENERGY = 10
 TURNS = 500
 
-# Initialize capacity and sugar arrays
-capacity = [[x + y for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
-sugar = [[capacity[x][y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
+class Agent:
+    def __init__(self, x, y, energy=INITIAL_ENERGY, sight=None):
+        if sight is None:
+            # random initial sight between 2 and 5
+            self.sight = random.randint(2,5)
+        else:
+            self.sight = sight
+        self.x = x
+        self.y = y
+        self.energy = energy
+        self.alive = True
 
-# Agents have random sight between 2 and 5
-agents = []
+class EvolSugarscape:
+    def __init__(self, grid_size=GRID_SIZE):
+        self.grid_size = grid_size
+        self.capacity = [[x+y for y in range(grid_size)] for x in range(grid_size)]
+        self.sugar = [[self.capacity[x][y] for y in range(grid_size)] for x in range(grid_size)]
+        self.agents = []
+        self.place_agents()
 
-def wrap(n):
-    return n % GRID_SIZE
+    def place_agents(self):
+        positions = set()
+        while len(positions) < NUM_AGENTS:
+            x = random.randint(0, self.grid_size-1)
+            y = random.randint(0, self.grid_size-1)
+            if (x,y) not in positions:
+                positions.add((x,y))
+                self.agents.append(Agent(x, y))
 
-# Place agents at random distinct locations
-all_positions = [(x, y) for x in range(GRID_SIZE) for y in range(GRID_SIZE)]
-random.shuffle(all_positions)
-for _ in range(NUM_AGENTS):
-    x, y = all_positions.pop()
-    sight = random.randint(2, 5)  # random sight
-    agents.append({"x": x, "y": y, "energy": INITIAL_ENERGY, "sight": sight})
+    def wrap(self, coord):
+        return coord % self.grid_size
 
-def sugar_growth_phase():
-    for x in range(GRID_SIZE):
-        for y in range(GRID_SIZE):
-            if sugar[x][y] < capacity[x][y]:
-                sugar[x][y] += 1
+    def sugar_growth_phase(self):
+        for x in range(self.grid_size):
+            for y in range(self.grid_size):
+                if self.sugar[x][y] < self.capacity[x][y]:
+                    self.sugar[x][y] += 1
 
-def visible_cells(agent):
-    s = agent["sight"]
-    x, y = agent["x"], agent["y"]
-    cells = [(x, y)]
-    for i in range(1, s + 1):
-        cells.append((x, wrap(y - i)))  # Up
-    for i in range(1, s + 1):
-        cells.append((x, wrap(y + i)))  # Down
-    for i in range(1, s + 1):
-        cells.append((wrap(x - i), y))  # Left
-    for i in range(1, s + 1):
-        cells.append((wrap(x + i), y))  # Right
-    return cells
+    def visible_locations(self, agent):
+        visible = [(agent.x, agent.y)]
+        for i in range(1, agent.sight+1):
+            visible.append((self.wrap(agent.x+i), agent.y))
+            visible.append((self.wrap(agent.x-i), agent.y))
+            visible.append((agent.x, self.wrap(agent.y+i)))
+            visible.append((agent.x, self.wrap(agent.y-i)))
+        visible = list(set(visible))
+        return visible
 
-def agent_movement_phase():
-    random.shuffle(agents)
-    occupied = {(a["x"], a["y"]) for a in agents}
+    def agent_movement_phase(self):
+        random.shuffle(self.agents)
+        occupied = {(a.x,a.y) for a in self.agents if a.alive}
 
-    for agent in agents:
-        vis_cells = visible_cells(agent)
-        free_cells = [(cx, cy) for (cx, cy) in vis_cells if (cx, cy) == (agent["x"], agent["y"]) or (cx, cy) not in occupied]
+        for agent in self.agents:
+            if not agent.alive:
+                continue
+            vis_locs = self.visible_locations(agent)
+            candidates = [(lx,ly) for (lx,ly) in vis_locs if (lx,ly) not in occupied or (lx,ly) == (agent.x,agent.y)]
+            if not candidates:
+                continue
+            best_sugar = max(self.sugar[lx][ly] for (lx,ly) in candidates)
+            best_candidates = [(lx,ly) for (lx,ly) in candidates if self.sugar[lx][ly] == best_sugar]
+            new_x, new_y = random.choice(best_candidates)
+            occupied.remove((agent.x, agent.y))
+            agent.x, agent.y = new_x, new_y
+            occupied.add((agent.x, agent.y))
+            # consume sugar
+            agent.energy += self.sugar[new_x][new_y]
+            self.sugar[new_x][new_y] = 0
 
-        if not free_cells:
-            # No free cell visible, agent stays put
-            continue
+    def consumption_phase_and_procreation(self):
+        # Energy consumption
+        occupied = {(a.x,a.y) for a in self.agents if a.alive}
+        new_agents = []
+        for agent in self.agents:
+            if agent.alive:
+                agent.energy -= 1
+                if agent.energy <= 0:
+                    agent.alive = False
+                    continue
 
-        # Choose cell with max sugar
-        max_sug = max(sugar[cx][cy] for cx, cy in free_cells)
-        candidates = [(cx, cy) for (cx, cy) in free_cells if sugar[cx][cy] == max_sug]
-        chosen = random.choice(candidates)
+                # Check procreation
+                if agent.energy > 20:
+                    # try to find empty neighbor
+                    neighbors = [(agent.x+1, agent.y),
+                                 (agent.x-1, agent.y),
+                                 (agent.x, agent.y+1),
+                                 (agent.x, agent.y-1)]
+                    neighbors = [(self.wrap(x),self.wrap(y)) for (x,y) in neighbors]
+                    empty_neighbors = [n for n in neighbors if n not in occupied]
+                    if empty_neighbors:
+                        child_x, child_y = random.choice(empty_neighbors)
+                        # split energy
+                        child_energy = agent.energy // 2
+                        agent.energy = agent.energy - child_energy
+                        child_sight = agent.sight
+                        # mutation
+                        m = random.randint(0,10)
+                        if m == 0 and child_sight > 2:
+                            child_sight -= 1
+                        elif m == 1 and child_sight < 5:
+                            child_sight += 1
 
-        old_pos = (agent["x"], agent["y"])
-        if chosen != old_pos:
-            occupied.remove(old_pos)
-            occupied.add(chosen)
-        agent["x"], agent["y"] = chosen[0], chosen[1]
+                        child = Agent(child_x, child_y, energy=child_energy, sight=child_sight)
+                        new_agents.append(child)
+                        occupied.add((child_x, child_y))
 
-        # Consume sugar
-        agent["energy"] += sugar[chosen[0]][chosen[1]]
-        sugar[chosen[0]][chosen[1]] = 0
+        self.agents.extend(new_agents)
 
-def consumption_phase(agents_list):
-    survivors = []
-    for ag in agents_list:
-        ag["energy"] -= 1
-        if ag["energy"] > 0:
-            survivors.append(ag)
-    return survivors
+    def run_simulation(self, turns=TURNS):
+        # Track number of agents and sight distribution each turn
+        data = []
+        for t in range(1, turns+1):
+            self.sugar_growth_phase()
+            self.agent_movement_phase()
+            self.consumption_phase_and_procreation()
 
-def reproduction_phase(agents_list):
-    occupied = {(a["x"], a["y"]) for a in agents_list}
-    new_agents = []
-    for ag in agents_list:
-        if ag["energy"] > 20:
-            neighbors = [
-                (wrap(ag["x"]), wrap(ag["y"] - 1)), # Up
-                (wrap(ag["x"]), wrap(ag["y"] + 1)), # Down
-                (wrap(ag["x"] - 1), wrap(ag["y"])), # Left
-                (wrap(ag["x"] + 1), wrap(ag["y"]))  # Right
-            ]
-            free_neighbors = [(nx, ny) for (nx, ny) in neighbors if (nx, ny) not in occupied]
-            if free_neighbors:
-                child_pos = random.choice(free_neighbors)
-                parent_energy = ag["energy"]
-                parent_new_energy = parent_energy // 2
-                child_energy = parent_energy - parent_new_energy
-                ag["energy"] = parent_new_energy
+            living_agents = [a for a in self.agents if a.alive]
+            count = len(living_agents)
+            if count > 0:
+                sights = [a.sight for a in living_agents]
+                avg_sight = statistics.mean(sights)
+            else:
+                avg_sight = 0
 
-                child_sight = ag["sight"]
-                # Mutation
-                mutation = random.randint(0, 10)
-                if mutation == 0:
-                    child_sight -= 1
-                    if child_sight < 1:
-                        child_sight = 1
-                elif mutation == 1:
-                    child_sight += 1
+            data.append((t, count, avg_sight))
 
-                child = {
-                    "x": child_pos[0],
-                    "y": child_pos[1],
-                    "energy": child_energy,
-                    "sight": child_sight
-                }
-                new_agents.append(child)
-                occupied.add(child_pos)
+        # Write CSV
+        with open("task3_evolution_data.csv","w",newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(["Turn","NumAgents","AvgSight"])
+            writer.writerows(data)
 
-    agents_list.extend(new_agents)
-    return agents_list
-
-# Data collection
-evolution_file = open('evolution_data.csv', 'w', newline='')
-evolution_writer = csv.writer(evolution_file)
-sight_range_to_track = range(1, 11)
-header = ["turn", "num_agents"] + [f"sight_{s}" for s in sight_range_to_track]
-evolution_writer.writerow(header)
-
-for turn in range(1, TURNS + 1):
-    sugar_growth_phase()
-    agent_movement_phase()
-    # Consumption and death
-    agents = consumption_phase(agents)
-    # Reproduction
-    agents = reproduction_phase(agents)
-
-    num_agents = len(agents)
-    sight_counts = {s:0 for s in sight_range_to_track}
-    for a in agents:
-        if a["sight"] in sight_counts:
-            sight_counts[a["sight"]] += 1
-
-    row = [turn, num_agents] + [sight_counts[s] for s in sight_range_to_track]
-    evolution_writer.writerow(row)
-
-evolution_file.close()
-
-# Example plotting (not required, but helpful)
-# Plot number of agents over time
-turns = []
-counts = []
-with open('evolution_data.csv', 'r') as f:
-    reader = csv.reader(f)
-    header = next(reader)
-    for row in reader:
-        t = int(row[0])
-        n = int(row[1])
-        turns.append(t)
-        counts.append(n)
-
-plt.figure()
-plt.plot(turns, counts, linestyle='-')
-plt.xlabel("Turn")
-plt.ylabel("Number of Agents")
-plt.title("Number of Agents Over Time (Evolutionary Sugarscape)")
-plt.show()
-
-# Plot average sight over time
-turns = []
-avg_sight = []
-with open('evolution_data.csv', 'r') as f:
-    reader = csv.reader(f)
-    header = next(reader)
-    # header: turn, num_agents, sight_1, sight_2, ...
-    for row in reader:
-        t = int(row[0])
-        n = int(row[1])
-        if n > 0:
-            total_sight = 0
-            idx_offset = 2
-            for i, s_val in enumerate(sight_range_to_track):
-                count_s = int(row[i+idx_offset])
-                total_sight += s_val * count_s
-            a_sight = total_sight / n
-            turns.append(t)
-            avg_sight.append(a_sight)
-
-plt.figure()
-plt.plot(turns, avg_sight, linestyle='-')
-plt.xlabel("Turn")
-plt.ylabel("Average Sight")
-plt.title("Average Sight Over Time (Evolutionary Sugarscape)")
-plt.show()
+if __name__ == "__main__":
+    s = EvolSugarscape()
+    s.run_simulation()
+    print("Task 3 simulation completed. Data saved to CSV.")
