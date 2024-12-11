@@ -3,10 +3,6 @@ import csv
 import numpy as np
 import matplotlib.pyplot as plt
 
-# ----------------------------
-# Combined Sugarscape 1 and 2
-# ----------------------------
-
 # Parameters for the simulation
 GRID_SIZE = 20
 NUM_AGENTS = 20
@@ -130,11 +126,7 @@ class Sugarscape:
                     for y in range(self.grid_size):
                         writer.writerow([t,x,y,sugar_data[t][x][y]])
 
-
-# ----------------------------
-# After simulation, perform the analysis (Task 2)
-# ----------------------------
-
+# Perform analysis after simulation
 def analyze_results():
     # Load total energy data
     turns = []
@@ -208,11 +200,11 @@ def analyze_results():
     print("Analysis completed. Plots saved as PNG files.")
 
 if __name__ == "__main__":
-    # Run the simulation (Task 1)
+    # Run the simulation for Task 1
     s = Sugarscape()
     s.run_simulation()
     print("Task 1 simulation completed. CSV files saved.")
 
-    # Perform the analysis (Task 2)
+    # Perform the analysis for Task 2
     analyze_results()
     print("Task 2 analysis completed.")

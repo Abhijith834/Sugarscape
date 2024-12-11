@@ -1,6 +1,7 @@
 import random
 import csv
 import statistics
+import matplotlib.pyplot as plt
 
 # Parameters
 GRID_SIZE = 20
@@ -11,8 +12,7 @@ TURNS = 500
 class Agent:
     def __init__(self, x, y, energy=INITIAL_ENERGY, sight=None):
         if sight is None:
-            # random initial sight between 2 and 5
-            self.sight = random.randint(2,5)
+            self.sight = random.randint(2,5) # random initial sight between 2 and 5
         else:
             self.sight = sight
         self.x = x
@@ -140,7 +140,48 @@ class EvolSugarscape:
             writer.writerow(["Turn","NumAgents","AvgSight"])
             writer.writerows(data)
 
+def plot_csv(file):
+    # Read data from the CSV file
+    turns = []
+    num_agents = []
+    avg_sight = []
+
+    with open(file,"r") as f:
+        reader = csv.reader(f)
+        next(reader)  # skip header
+        for row in reader:
+            t = int(row[0])
+            n = int(row[1])
+            s = float(row[2])
+            turns.append(t)
+            num_agents.append(n)
+            avg_sight.append(s)
+
+    # Plot average sight over time
+    plt.figure(figsize=(8,6))
+    plt.plot(turns, avg_sight, label="Average Sight", color='blue')
+    plt.xlabel("Turn")
+    plt.ylabel("Average Sight")
+    plt.title("Average Sight Over Time")
+    plt.legend()
+    plt.savefig("task3_avg_sight_over_time.png")
+    plt.close()
+
+    # Plot number of agents over time
+    plt.figure(figsize=(8,6))
+    plt.plot(turns, num_agents, label="Number of Agents", color='green')
+    plt.xlabel("Turn")
+    plt.ylabel("Number of Agents")
+    plt.title("Number of Agents Over Time")
+    plt.legend()
+    plt.savefig("task3_num_agents_over_time.png")
+    plt.close()
+
+    print("Plots for average sight and number of agents over time have been saved.")
+
+
 if __name__ == "__main__":
     s = EvolSugarscape()
     s.run_simulation()
     print("Task 3 simulation completed. Data saved to CSV.")
+    plot_csv("task3_evolution_data.csv")

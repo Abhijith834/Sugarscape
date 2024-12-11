@@ -14,8 +14,7 @@ class Agent:
         if sight is None:
             sight = random.randint(2,5)
         if uses_empowerment is None:
-            # 50% chance
-            uses_empowerment = (random.random() < 0.5)
+            uses_empowerment = (random.random() < 0.5) # 50% chance
         self.x = x
         self.y = y
         self.energy = energy
